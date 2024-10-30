@@ -1,36 +1,36 @@
+# docker/docker-compose.yaml
 version: '3'
 
 services:
   wordpress:
-    image: wordpress:6.4-php8.2-fpm
+    image: ${ECR_REGISTRY}/wordpress-app:preprod
     volumes:
-      - ./wordpress:/var/www/html
+      - wp_data:/var/www/html
       - ./php/www.conf:/usr/local/etc/php-fpm.d/www.conf
     environment:
       - WORDPRESS_DB_HOST=${DB_HOST}
       - WORDPRESS_DB_NAME=${DB_NAME}
       - WORDPRESS_DB_USER=${DB_USER}
       - WORDPRESS_DB_PASSWORD=${DB_PASSWORD}
+    restart: always
+    networks:
+      - wp_network
 
   nginx:
     image: nginx:1.24
     ports:
       - "80:80"
     volumes:
-      - ./wordpress:/var/www/html
-      - ./niginx/default.conf:/etc/nginx/conf.d/default.conf
+      - wp_data:/var/www/html
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
     depends_on:
       - wordpress
+    restart: always
+    networks:
+      - wp_network
 
-  db:
-    image: mysql:5.7
-    volumes:
-      - db_data:/var/lib/mysql
-    environment:
-      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
-      - MYSQL_DATABASE=${DB_NAME}
-      - MYSQL_USER=${DB_USER}
-      - MYSQL_PASSWORD=${DB_PASSWORD}
+networks:
+  wp_network:
 
 volumes:
-  db_data:
+  wp_data:
