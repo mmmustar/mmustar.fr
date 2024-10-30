@@ -1,0 +1,36 @@
+version: '3'
+
+services:
+  wordpress:
+    image: wordpress:6.4-php8.2-fpm
+    volumes:
+      - ./wordpress:/var/www/html
+      - ./php/www.conf:/usr/local/etc/php-fpm.d/www.conf
+    environment:
+      - WORDPRESS_DB_HOST=${DB_HOST}
+      - WORDPRESS_DB_NAME=${DB_NAME}
+      - WORDPRESS_DB_USER=${DB_USER}
+      - WORDPRESS_DB_PASSWORD=${DB_PASSWORD}
+
+  nginx:
+    image: nginx:1.24
+    ports:
+      - "80:80"
+    volumes:
+      - ./wordpress:/var/www/html
+      - ./niginx/default.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - wordpress
+
+  db:
+    image: mysql:5.7
+    volumes:
+      - db_data:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${DB_NAME}
+      - MYSQL_USER=${DB_USER}
+      - MYSQL_PASSWORD=${DB_PASSWORD}
+
+volumes:
+  db_data:
