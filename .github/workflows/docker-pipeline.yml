@@ -1,0 +1,88 @@
+name: Deploy to Preprod
+
+on:
+  push:
+    branches: [ develop ]
+    paths-ignore:
+      - '**.md'
+
+env:
+  AWS_REGION: eu-west-3
+  ECR_REPOSITORY: wordpress-app
+  ENV_FILE: .env.preprod
+  DOCKER_DIR: docker
+  GITHUB_REPO: "https://github.com/mmmustar/mmustar.fr.git"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-22.04
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Get EC2 Host
+        id: get-host
+        run: |
+          if [ -f ${{ env.ENV_FILE }} ]; then
+            EC2_HOST=$(grep EC2_PREPROD_HOST ${{ env.ENV_FILE }} | cut -d= -f2)
+            echo "ec2_host=$EC2_HOST" >> $GITHUB_OUTPUT
+          else
+            echo "Error: ${{ env.ENV_FILE }} not found"
+            exit 1
+          fi
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build and push WordPress image
+        id: build-image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./${{ env.DOCKER_DIR }}
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:preprod
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+      
+      - name: Deploy to EC2
+        if: steps.get-host.outputs.ec2_host != ''
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ steps.get-host.outputs.ec2_host }}
+          username: ec2-user
+          key: ${{ secrets.EC2_PREPROD_SSH_KEY }}
+          script: |
+            rm -rf ~/wordpress-preprod
+            mkdir -p ~/wordpress-preprod
+            cd ~/wordpress-preprod
+            
+            git clone ${{ env.GITHUB_REPO }} .
+            
+            aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+            
+            cd ${{ env.DOCKER_DIR }}
+            sed -i "s|ECR_REGISTRY=.*|ECR_REGISTRY=${{ steps.login-ecr.outputs.registry }}|g" .env
+            
+            docker compose pull
+            docker compose down --volumes
+            docker compose up -d
+            
+            docker image prune -f
+      
+      - name: Verify deployment
+        if: steps.get-host.outputs.ec2_host != ''
+        run: |
+          sleep 30
+          curl -f http://${{ steps.get-host.outputs.ec2_host }} || exit 1
