@@ -16,7 +16,7 @@ RUN apk add --no-cache \
     pdo \
     pdo_mysql
 
-COPY php/www.conf /usr/local/etc/php-fpm.d/www.conf
+COPY www.conf /usr/local/etc/php-fpm.d/www.conf
 COPY wp-config.php /var/www/html/wp-config.php
 
 USER www-data
