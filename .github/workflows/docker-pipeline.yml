@@ -1,19 +1,21 @@
-name: Deploy to Preprod
+name: Build and Push Docker Images
 
 on:
   push:
-    branches: [ develop ]
-    paths-ignore:
-      - '**.md'
+    branches: [ images-docker ]
+    paths:
+      - 'docker/**'
+      - '.github/workflows/docker-pipeline.yml'
 
 env:
   AWS_REGION: eu-west-3
-  ECR_REPOSITORY: wordpress-app
-  DOCKER_DIR: docker
-  GITHUB_REPO: "https://github.com/mmmustar/mmustar.fr.git"
+  REGISTRY: 730335289383.dkr.ecr.eu-west-3.amazonaws.com
+  WORDPRESS_REPOSITORY: wordpress-app
+  NGINX_REPOSITORY: nginx
+  VERSION: 1.0.0
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-22.04
     
     steps:
@@ -27,56 +29,58 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Get EC2 Host
-        id: get-host
-        run: |
-          EC2_HOST=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=preprod-instance" "Name=instance-state-name,Values=running" \
-            --query "Reservations[0].Instances[0].PublicIpAddress" \
-            --output text)
-          echo "ec2_host=$EC2_HOST" >> $GITHUB_OUTPUT
-      
       - name: Login to ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
       
+      - name: Extract metadata
+        id: meta
+        run: |
+          echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "branch=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
+
       - name: Build and push WordPress image
-        id: build-image
         uses: docker/build-push-action@v5
         with:
-          context: ./${{ env.DOCKER_DIR }}
+          context: ./docker
+          file: ./docker/Dockerfile
           push: true
           tags: |
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:preprod
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
-      
-      - name: Deploy to EC2
-        if: steps.get-host.outputs.ec2_host != ''
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ steps.get-host.outputs.ec2_host }}
-          username: ec2-user
-          key: ${{ secrets.EC2_PREPROD_SSH_KEY }}
-          script: |
-            rm -rf ~/wordpress-preprod
-            mkdir -p ~/wordpress-preprod
-            cd ~/wordpress-preprod
-            
-            git clone ${{ env.GITHUB_REPO }} .
-            
-            aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
-            
-            cd ${{ env.DOCKER_DIR }}
-            sed -i "s|ECR_REGISTRY=.*|ECR_REGISTRY=${{ steps.login-ecr.outputs.registry }}|g" .env
-            
-            docker compose pull
-            docker compose down --volumes
-            docker compose up -d
-            
-            docker image prune -f
-      
-      - name: Verify deployment
-        if: steps.get-host.outputs.ec2_host != ''
+            ${{ env.REGISTRY }}/${{ env.WORDPRESS_REPOSITORY }}:latest
+            ${{ env.REGISTRY }}/${{ env.WORDPRESS_REPOSITORY }}:${{ steps.meta.outputs.sha_short }}
+            ${{ env.REGISTRY }}/${{ env.WORDPRESS_REPOSITORY }}:${{ env.VERSION }}-${{ steps.meta.outputs.date }}
+
+      - name: Pull and push Nginx image
         run: |
-          sleep 30
-          curl -f http://${{ steps.get-host.outputs.ec2_host }} || exit 1
+          # Pull Nginx
+          docker pull nginx:1.24-alpine
+          
+          # Tag with multiple tags
+          docker tag nginx:1.24-alpine ${{ env.REGISTRY }}/${{ env.NGINX_REPOSITORY }}:1.24-alpine
+          docker tag nginx:1.24-alpine ${{ env.REGISTRY }}/${{ env.NGINX_REPOSITORY }}:${{ steps.meta.outputs.sha_short }}
+          docker tag nginx:1.24-alpine ${{ env.REGISTRY }}/${{ env.NGINX_REPOSITORY }}:${{ env.VERSION }}-${{ steps.meta.outputs.date }}
+          
+          # Push all tags
+          docker push ${{ env.REGISTRY }}/${{ env.NGINX_REPOSITORY }}:1.24-alpine
+          docker push ${{ env.REGISTRY }}/${{ env.NGINX_REPOSITORY }}:${{ steps.meta.outputs.sha_short }}
+          docker push ${{ env.REGISTRY }}/${{ env.NGINX_REPOSITORY }}:${{ env.VERSION }}-${{ steps.meta.outputs.date }}
+
+      - name: Update docker-compose.yaml with new tags
+        run: |
+          sed -i "s|image: nginx:.*|image: ${{ env.REGISTRY }}/${{ env.NGINX_REPOSITORY }}:${{ steps.meta.outputs.sha_short }}|" docker/docker-compose.yaml
+          sed -i "s|image: ${{ env.REGISTRY }}/${{ env.WORDPRESS_REPOSITORY }}:.*|image: ${{ env.REGISTRY }}/${{ env.WORDPRESS_REPOSITORY }}:${{ steps.meta.outputs.sha_short }}|" docker/docker-compose.yaml
+
+      - name: Display image information
+        run: |
+          echo "Built and pushed the following images:"
+          echo ""
+          echo "WordPress images:"
+          echo "- ${{ env.REGISTRY }}/${{ env.WORDPRESS_REPOSITORY }}:latest"
+          echo "- ${{ env.REGISTRY }}/${{ env.WORDPRESS_REPOSITORY }}:${{ steps.meta.outputs.sha_short }}"
+          echo "- ${{ env.REGISTRY }}/${{ env.WORDPRESS_REPOSITORY }}:${{ env.VERSION }}-${{ steps.meta.outputs.date }}"
+          echo ""
+          echo "Nginx images:"
+          echo "- ${{ env.REGISTRY }}/${{ env.NGINX_REPOSITORY }}:1.24-alpine"
+          echo "- ${{ env.REGISTRY }}/${{ env.NGINX_REPOSITORY }}:${{ steps.meta.outputs.sha_short }}"
+          echo "- ${{ env.REGISTRY }}/${{ env.NGINX_REPOSITORY }}:${{ env.VERSION }}-${{ steps.meta.outputs.date }}"
