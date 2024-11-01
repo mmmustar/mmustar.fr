@@ -3,10 +3,7 @@ name: Build Nginx Image
 on:
   push:
     branches: 
-      - 'nginx'
-    paths:
-      - 'docker/nginx/**'
-      - '.github/workflows/nginx.yml'
+      - nginx
 
 env:
   AWS_REGION: eu-west-3
@@ -30,7 +27,9 @@ jobs:
       
       - name: Extract metadata
         id: meta
-        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        run: |
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
 
       - name: Build and push
         uses: docker/build-push-action@v5
@@ -38,6 +37,4 @@ jobs:
           context: ./docker/nginx
           file: ./docker/nginx/Dockerfile
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:nginx${{ env.NGINX_VERSION }}
-            ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:nginx-${{ steps.meta.outputs.sha_short }}
+          tags: ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:nginx-preprod-v${{ env.NGINX_VERSION }}-${{ steps.meta.outputs.date }}-${{ steps.meta.outputs.sha_short }}

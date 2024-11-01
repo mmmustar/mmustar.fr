@@ -28,7 +28,9 @@ jobs:
       
       - name: Extract metadata
         id: meta
-        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        run: |
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
 
       - name: Build and push
         uses: docker/build-push-action@v5
@@ -36,6 +38,4 @@ jobs:
           context: ./docker/wordpress
           file: ./docker/wordpress/Dockerfile
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:wp${{ env.WP_VERSION }}-php${{ env.PHP_VERSION }}
-            ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:wp-${{ steps.meta.outputs.sha_short }}
+          tags: ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:wordpress-preprod-v${{ env.WP_VERSION }}-${{ steps.meta.outputs.date }}-${{ steps.meta.outputs.sha_short }}
