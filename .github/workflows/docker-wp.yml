@@ -1,0 +1,44 @@
+name: Build WordPress Image
+
+on:
+  push:
+    branches: 
+      - 'wordpress'
+    paths:
+      - 'docker/wordpress/**'
+      - '.github/workflows/wordpress.yml'
+
+env:
+  AWS_REGION: eu-west-3
+  REGISTRY: 730335289383.dkr.ecr.eu-west-3.amazonaws.com
+  REPOSITORY: wordpress-app
+  PHP_VERSION: 7.4
+  WP_VERSION: 6.3
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Extract metadata
+        id: meta
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./docker/wordpress
+          file: ./docker/wordpress/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:wp${{ env.WP_VERSION }}-php${{ env.PHP_VERSION }}
+            ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:wp-${{ steps.meta.outputs.sha_short }}

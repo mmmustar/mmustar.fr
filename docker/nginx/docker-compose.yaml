@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  nginx:
+    image: ${REGISTRY:-730335289383.dkr.ecr.eu-west-3.amazonaws.com}/wordpress-app:nginx1.24
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - wordpress:/var/www/html
+      - letsencrypt:/etc/letsencrypt
+    restart: unless-stopped
+
+volumes:
+  wordpress:
+  letsencrypt:

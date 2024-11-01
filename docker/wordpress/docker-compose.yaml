@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  wordpress:
+    image: ${REGISTRY:-730335289383.dkr.ecr.eu-west-3.amazonaws.com}/wordpress-app:wp6.3-php7.4
+    volumes:
+      - wordpress:/var/www/html
+    environment:
+      - AWS_DEFAULT_REGION=eu-west-3
+    restart: unless-stopped
+
+volumes:
+  wordpress:
