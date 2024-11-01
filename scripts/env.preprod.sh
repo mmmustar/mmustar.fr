@@ -7,6 +7,13 @@ KEY_NAME="preprod-key"
 VPC_CIDR="10.0.0.0/16"
 SUBNET_CIDR="10.0.1.0/24"
 
+DOCKER_VERSION="24.0.7"
+DOCKER_COMPOSE_VERSION="2.21.0"
+K3S_VERSION="v1.28.4+k3s2"
+KUBECTL_VERSION="v1.28.4"
+HELM_VERSION="v3.13.3"
+KUBERNETES_DASHBOARD="v2.7.0"
+
 log() {
    echo "[INFO] $1"
 }
@@ -89,6 +96,18 @@ create_network() {
        --port 443 \
        --cidr 0.0.0.0/0
 
+   aws ec2 authorize-security-group-ingress \
+       --group-id $SG_ID \
+       --protocol tcp \
+       --port 6443 \
+       --cidr 0.0.0.0/0
+
+   aws ec2 authorize-security-group-ingress \
+       --group-id $SG_ID \
+       --protocol tcp \
+       --port 10250 \
+       --cidr 0.0.0.0/0
+
    cat > $ENV_FILE << EOF
 VPC_ID=$VPC_ID
 SUBNET_ID=$SUBNET_ID
@@ -110,21 +129,38 @@ create_env() {
    
    log "Création de l'instance preprod..."
    
-   INSTANCE_ID=$(aws ec2 run-instances \
-       --region $AWS_REGION \
-       --image-id ami-009d5fce35d17d28c \
-       --instance-type $INSTANCE_TYPE \
-       --key-name "$KEY_NAME" \
-       --security-group-ids $SECURITY_GROUP_ID \
-       --subnet-id $SUBNET_ID \
-       --user-data '#!/bin/bash
-amazon-linux-extras install docker
+  INSTANCE_ID=$(aws ec2 run-instances \
+      --instance-market-options '{"MarketType":"spot","SpotOptions":{"MaxPrice":"0.005"}}' \
+      --region $AWS_REGION \
+      --image-id ami-009d5fce35d17d28c \
+      --instance-type $INSTANCE_TYPE \
+      --key-name "$KEY_NAME" \
+      --security-group-ids $SECURITY_GROUP_ID \
+      --subnet-id $SUBNET_ID \
+      --user-data "#!/bin/bash
+amazon-linux-extras install docker=${DOCKER_VERSION}
 systemctl enable docker
 systemctl start docker
 usermod -a -G docker ec2-user
-yum install -y aws-cli
-curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-chmod +x /usr/local/bin/docker-compose' \
+
+curl -L \"https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-\$(uname -s)-\$(uname -m)\" -o /usr/local/bin/docker-compose
+chmod +x /usr/local/bin/docker-compose
+
+curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${K3S_VERSION} sh -
+
+curl -LO \"https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl\"
+chmod +x kubectl
+mv kubectl /usr/local/bin/
+
+curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+chmod +x get_helm.sh
+DESIRED_VERSION=${HELM_VERSION} ./get_helm.sh
+
+mkdir -p /home/ec2-user/.kube
+cp /etc/rancher/k3s/k3s.yaml /home/ec2-user/.kube/config
+chown -R ec2-user:ec2-user /home/ec2-user/.kube
+
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/${KUBERNETES_DASHBOARD}/aio/deploy/recommended.yaml" \
        --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=preprod-instance},{Key=Environment,Value=preprod}]' \
        --query 'Instances[0].InstanceId' \
        --output text)

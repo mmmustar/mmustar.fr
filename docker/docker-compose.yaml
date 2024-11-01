@@ -1,36 +1,39 @@
 # docker/docker-compose.yaml
-version: '3'
+version: '3.8'
 
 services:
-  wordpress:
-    image: ${ECR_REGISTRY}/wordpress-app:preprod
-    volumes:
-      - wp_data:/var/www/html
-      - ./php/www.conf:/usr/local/etc/php-fpm.d/www.conf
-    environment:
-      - WORDPRESS_DB_HOST=${DB_HOST}
-      - WORDPRESS_DB_NAME=${DB_NAME}
-      - WORDPRESS_DB_USER=${DB_USER}
-      - WORDPRESS_DB_PASSWORD=${DB_PASSWORD}
-    restart: always
-    networks:
-      - wp_network
-
   nginx:
-    image: nginx:1.24
+    image: nginx:1.24-alpine
     ports:
       - "80:80"
+      - "443:443"
     volumes:
-      - wp_data:/var/www/html
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - wordpress:/var/www/html
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - letsencrypt:/etc/letsencrypt
     depends_on:
       - wordpress
-    restart: always
     networks:
       - wp_network
+    restart: unless-stopped
+
+  wordpress:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - wordpress:/var/www/html
+      - ./wordpress/wp-config.php:/var/www/html/wp-config.php:ro
+    environment:
+      - AWS_DEFAULT_REGION=eu-west-3
+    networks:
+      - wp_network
+    restart: unless-stopped
+
+volumes:
+  wordpress:
+  letsencrypt:
 
 networks:
   wp_network:
-
-volumes:
-  wp_data:
+    driver: bridge
