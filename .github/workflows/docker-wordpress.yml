@@ -3,10 +3,7 @@ name: Build WordPress Image
 on:
   push:
     branches: 
-      - 'wordpress'
-    paths:
-      - 'docker/wordpress/**'
-      - '.github/workflows/wordpress.yml'
+      - wordpress
 
 env:
   AWS_REGION: eu-west-3
